@@ -7,16 +7,18 @@
  * Tokens are never visible to sandbox code - they're injected by the host.
  * 
  * Token configuration in ~/.pave/permissions.yaml:
- * {
- *   "tokens": {
- *     "wrike": {
- *       "env": "WRIKE_ACCESS_TOKEN",
- *       "type": "api_key",
- *       "domains": ["www.wrike.com", "*.wrike.com"],
- *       "placement": { "type": "header", "name": "Authorization", "format": "Bearer {token}" }
- *     }
- *   }
- * }
+ * 
+ * tokens:
+ *   wrike:
+ *     env: WRIKE_ACCESS_TOKEN
+ *     type: api_key
+ *     domains:
+ *       - www.wrike.com
+ *       - "*.wrike.com"
+ *     placement:
+ *       type: header
+ *       name: Authorization
+ *       format: "Bearer {token}"
  */
 
 // Constants
@@ -71,16 +73,22 @@ class WrikeClient {
       console.error('Wrike token not configured.');
       console.error('');
       console.error('Add to ~/.pave/permissions.yaml under tokens section:');
-      console.error(JSON.stringify({
-        wrike: {
-          env: 'WRIKE_ACCESS_TOKEN',
-          type: 'api_key',
-          domains: ['www.wrike.com', '*.wrike.com'],
-          placement: { type: 'header', name: 'Authorization', format: 'Bearer {token}' }
-        }
-      }, null, 2));
       console.error('');
-      console.error('Then set environment variable WRIKE_ACCESS_TOKEN');
+      console.error('tokens:');
+      console.error('  wrike:');
+      console.error('    env: WRIKE_ACCESS_TOKEN');
+      console.error('    type: api_key');
+      console.error('    domains:');
+      console.error('      - www.wrike.com');
+      console.error('      - "*.wrike.com"');
+      console.error('    placement:');
+      console.error('      type: header');
+      console.error('      name: Authorization');
+      console.error('      format: "Bearer {token}"');
+      console.error('');
+      console.error('Then add your token to ~/.pave/tokens.yaml:');
+      console.error('');
+      console.error('WRIKE_ACCESS_TOKEN: "your-wrike-permanent-access-token"');
       throw new Error('Wrike token not configured');
     }
 

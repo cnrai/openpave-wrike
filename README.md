@@ -18,21 +18,18 @@ WRIKE_ACCESS_TOKEN: "your-wrike-permanent-access-token"
 
 The token configuration is automatically set up in `~/.pave/permissions.yaml`:
 
-```json
-{
-  "tokens": {
-    "wrike": {
-      "env": "WRIKE_ACCESS_TOKEN",
-      "type": "api_key",
-      "domains": ["www.wrike.com", "*.wrike.com"],
-      "placement": {
-        "type": "header",
-        "name": "Authorization",
-        "format": "Bearer {token}"
-      }
-    }
-  }
-}
+```yaml
+tokens:
+  wrike:
+    env: WRIKE_ACCESS_TOKEN
+    type: api_key
+    domains:
+      - www.wrike.com
+      - "*.wrike.com"
+    placement:
+      type: header
+      name: Authorization
+      format: "Bearer {token}"
 ```
 
 ## Usage
