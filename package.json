@@ -1,0 +1,31 @@
+{
+  "name": "openpave-wrike",
+  "version": "1.0.0",
+  "description": "PAVE skill for Wrike task and project management",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "pave",
+    "openpave",
+    "wrike",
+    "tasks",
+    "project-management",
+    "work-management"
+  ],
+  "author": "cnrai",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cnrai/openpave-wrike.git"
+  },
+  "homepage": "https://github.com/cnrai/openpave-wrike#readme",
+  "bugs": {
+    "url": "https://github.com/cnrai/openpave-wrike/issues"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

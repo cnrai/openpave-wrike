@@ -1,0 +1,261 @@
+# OpenPAVE Wrike Skill
+# Query and manage Wrike tasks, folders, and attachments securely
+
+name: wrike
+version: 1.0.0
+description: Query and manage Wrike tasks, folders, and attachments using secure token system
+
+author:
+  name: cnrai
+  url: https://github.com/cnrai
+
+license: MIT
+homepage: https://github.com/cnrai/openpave-wrike
+repository: cnrai/openpave-wrike
+
+# Execution pattern
+pattern: sandbox
+entrypoint: index.js
+
+# Available commands
+commands:
+  - name: query
+    description: Query tasks with various filter parameters
+    options:
+      - -f, --folder <folderId>
+      - -s, --space <spaceId>
+      - --status <status>
+      - --importance <importance>
+      - --title <title>
+      - --responsibles <ids>
+      - --sort-field <field>
+      - --sort-order <order>
+      - --page-size <size>
+      - --json
+      - --summary
+
+  - name: get
+    description: Get specific tasks by IDs or URLs
+    options:
+      - -i, --ids <taskIds>
+      - -u, --urls <urls>
+      - --json
+      - --summary
+
+  - name: create
+    description: Create a new task in a folder
+    options:
+      - -f, --folder <folderId>
+      - -t, --title <title>
+      - -d, --description <desc>
+      - --status <status>
+      - --importance <importance>
+      - --responsibles <ids>
+      - --json
+      - --summary
+    required:
+      - -f, --folder
+      - -t, --title
+
+  - name: update
+    description: Update an existing task
+    options:
+      - -i, --id <taskId>
+      - -u, --url <url>
+      - -t, --title <title>
+      - -d, --description <desc>
+      - --status <status>
+      - --importance <importance>
+      - --add-responsibles <ids>
+      - --remove-responsibles <ids>
+      - --json
+      - --summary
+
+  - name: delete
+    description: Delete a task - move to trash
+    options:
+      - -i, --id <taskId>
+      - -u, --url <url>
+      - --json
+      - --summary
+
+  - name: comment
+    description: Add a comment to a task
+    options:
+      - -i, --id <taskId>
+      - -u, --url <url>
+      - -m, --message <text>
+      - --plain
+      - --json
+      - --summary
+    required:
+      - -m, --message
+
+  - name: comments
+    description: Get comments for a task
+    args:
+      - <taskId>
+    options:
+      - --json
+      - --summary
+
+  - name: assign
+    description: Assign a task to one or more users
+    options:
+      - -i, --id <taskId>
+      - -u, --url <url>
+      - --user <user>
+      - --replace
+      - --json
+      - --summary
+    required:
+      - --user
+
+  - name: attachments
+    description: Query and search attachments
+    options:
+      - -t, --task <taskId>
+      - --task-url <url>
+      - -f, --folder <folderId>
+      - --search <name>
+      - --exact
+      - --json
+      - --summary
+
+  - name: users
+    description: List Wrike users and contacts
+    options:
+      - --me
+      - --json
+      - --summary
+
+  - name: folders
+    description: List all folders
+    options:
+      - --json
+      - --summary
+
+  - name: spaces
+    description: List all spaces
+    options:
+      - --json
+      - --summary
+
+  - name: convert-id
+    description: Convert numeric IDs from URLs to API IDs
+    args:
+      - <ids>
+
+  - name: extract-id
+    description: Extract numeric ID from a Wrike URL - offline operation
+    args:
+      - <url>
+
+# Token configuration for secure sandbox access
+tokens:
+  wrike:
+    type: api_key
+    description: Wrike permanent access token
+    domains:
+      - www.wrike.com
+      - "*.wrike.com"
+    env:
+      required:
+        - WRIKE_ACCESS_TOKEN
+    config:
+      env: WRIKE_ACCESS_TOKEN
+      type: api_key
+      domains:
+        - www.wrike.com
+        - "*.wrike.com"
+      placement:
+        type: header
+        name: Authorization
+        format: "Bearer {token}"
+
+# Sandbox permissions
+permissions:
+  fs.read: []
+  fs.write: []
+  network:
+    - www.wrike.com
+  modules:
+    - fs
+    - path
+  system: []
+
+# Platform compatibility
+platforms:
+  - darwin
+  - linux
+  - win32
+
+engines:
+  node: ">=16.0.0"
+
+# Metadata
+keywords:
+  - wrike
+  - tasks
+  - project-management
+  - work-management
+  - collaboration
+
+category: productivity
+icon: "\U0001F4CB"
+
+# Common folder IDs for reference
+reference:
+  folders:
+    daily_scrum: MQAAAAECSW8i
+    under_radar: MQAAAAECSOwP
+    cnr_pipedrive: IEABSYMZI4E5E5JI
+  statuses:
+    - Active
+    - Completed
+    - Deferred
+    - Cancelled
+  importance:
+    - High
+    - Normal
+    - Low
+  sort_fields:
+    - CreatedDate
+    - UpdatedDate
+    - CompletedDate
+    - DueDate
+    - Status
+    - Importance
+    - Title
+
+# Usage examples
+examples:
+  - description: Query active tasks in a folder
+    command: wrike query --folder MQAAAAECSW8i --status Active --summary
+
+  - description: Query tasks assigned to a user
+    command: wrike query --responsibles KUADC2JT --sort-field UpdatedDate --sort-order Desc --summary
+
+  - description: Get task by URL
+    command: wrike get --urls "https://www.wrike.com/open.htm?id=123456" --summary
+
+  - description: Create a new task
+    command: wrike create --folder MQAAAAECSW8i --title "New Task" --description "Task details"
+
+  - description: Update task status to completed
+    command: wrike update --id IEABSYMZI4TASKID --status Completed
+
+  - description: Assign task to a user by name
+    command: wrike assign --url "https://wrike.com/..." --user jasmine
+
+  - description: Add a comment with HTML formatting
+    command: wrike comment --id TASKID --message "Done<br/><b>Ready for review</b>"
+
+  - description: Search attachments by name
+    command: wrike attachments --folder MQAAAAECSW8i --search "invoice" --summary
+
+  - description: List all users
+    command: wrike users --summary
+
+  - description: Show current user
+    command: wrike users --me --summary
