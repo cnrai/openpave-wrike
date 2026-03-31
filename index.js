@@ -294,11 +294,16 @@ class WrikeClient {
 
   /**
    * Add a comment to a task
+   * Converts newlines to <br> tags for proper HTML rendering in Wrike
    */
   addComment(taskId, text, plainText = false) {
+    // Convert newlines to <br> for HTML mode (Wrike default)
+    // This ensures line breaks are preserved in the comment
+    const formattedText = plainText ? text : text.replace(/\n/g, '<br>');
+    
     return this.request(`/tasks/${taskId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ text, plainText })
+      body: JSON.stringify({ text: formattedText, plainText })
     });
   }
 
