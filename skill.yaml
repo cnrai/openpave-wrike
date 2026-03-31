@@ -2,7 +2,7 @@
 # Query and manage Wrike tasks, folders, and attachments securely
 
 name: wrike
-version: 1.0.0
+version: 1.0.1
 description: Query and manage Wrike tasks, folders, and attachments using secure token system
 
 author:

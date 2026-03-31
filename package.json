@@ -1,6 +1,6 @@
 {
   "name": "openpave-wrike",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "PAVE skill for Wrike task and project management",
   "main": "index.js",
   "type": "commonjs",
