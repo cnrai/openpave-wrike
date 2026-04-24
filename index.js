@@ -588,7 +588,8 @@ GET OPTIONS:
 CREATE OPTIONS:
   -f, --folder <folderId>      Folder ID (required)
   -t, --title <title>          Task title (required)
-  -d, --description <desc>     Task description
+  -d, --description <desc>     Task description (single-line; avoid apostrophes)
+  --description-file <path>    Read description from file (preferred for multi-line / HTML)
   --status <status>            Status (default: Active)
   --importance <importance>    Importance (default: Normal)
   --responsibles <ids>         Assign to users (comma-separated)
@@ -597,7 +598,8 @@ UPDATE OPTIONS:
   -i, --id <taskId>            Task API ID
   -u, --url <url>              Wrike task URL
   -t, --title <title>          New title
-  -d, --description <desc>     New description
+  -d, --description <desc>     New description (single-line; avoid apostrophes)
+  --description-file <path>    Read new description from file (preferred for multi-line / HTML)
   --status <status>            New status
   --add-responsibles <ids>     Add assignees
   --remove-responsibles <ids>  Remove assignees
@@ -746,7 +748,10 @@ function main() {
           importance: parsed.options.importance || 'Normal'
         };
 
-        if (parsed.options.description || parsed.options.d) {
+        if (parsed.options['description-file']) {
+          const fs = require('fs');
+          taskData.description = fs.readFileSync(parsed.options['description-file'], 'utf8');
+        } else if (parsed.options.description || parsed.options.d) {
           taskData.description = parsed.options.description || parsed.options.d;
         }
         if (parsed.options.responsibles) {
@@ -791,7 +796,12 @@ function main() {
 
         const updateData = {};
         if (parsed.options.title || parsed.options.t) updateData.title = parsed.options.title || parsed.options.t;
-        if (parsed.options.description || parsed.options.d) updateData.description = parsed.options.description || parsed.options.d;
+        if (parsed.options['description-file']) {
+          const fs = require('fs');
+          updateData.description = fs.readFileSync(parsed.options['description-file'], 'utf8');
+        } else if (parsed.options.description || parsed.options.d) {
+          updateData.description = parsed.options.description || parsed.options.d;
+        }
         if (parsed.options.status) updateData.status = parsed.options.status;
         if (parsed.options.importance) updateData.importance = parsed.options.importance;
         if (parsed.options['add-responsibles']) {

@@ -2,7 +2,7 @@
 # Query and manage Wrike tasks, folders, and attachments securely
 
 name: wrike
-version: 1.0.2
+version: 1.0.3
 description: Query and manage Wrike tasks, folders, and attachments using secure token system
 
 author:
@@ -48,6 +48,7 @@ commands:
       - -f, --folder <folderId>
       - -t, --title <title>
       - -d, --description <desc>
+      - --description-file <path>
       - --status <status>
       - --importance <importance>
       - --responsibles <ids>
@@ -64,6 +65,7 @@ commands:
       - -u, --url <url>
       - -t, --title <title>
       - -d, --description <desc>
+      - --description-file <path>
       - --status <status>
       - --importance <importance>
       - --add-responsibles <ids>
