@@ -392,6 +392,39 @@ class WrikeClient {
   }
 
   /**
+   * Get all folders. The /folders endpoint returns the folder tree in a single
+   * response (no pagination supported), but accepts a `fields` parameter to
+   * request additional metadata such as `project` so we can detect projects.
+   */
+  getAllFolders(params = {}) {
+    const qs = encodeFormData(params);
+    const endpoint = '/folders' + (qs ? `?${qs}` : '');
+    const resp = this.request(endpoint);
+    return { kind: resp.kind || 'folderTree', data: resp.data || [] };
+  }
+
+  /**
+   * Get folders inside a specific space or folder (supports descendants).
+   * Useful for listing all projects under a space.
+   */
+  getFoldersIn(parentId, params = {}) {
+    const qs = encodeFormData(params);
+    const endpoint = `/folders/${parentId}/folders` + (qs ? `?${qs}` : '');
+    const resp = this.request(endpoint);
+    return { kind: resp.kind || 'folderTree', data: resp.data || [] };
+  }
+
+  /**
+   * Get folders within a space.
+   */
+  getSpaceFolders(spaceId, params = {}) {
+    const qs = encodeFormData(params);
+    const endpoint = `/spaces/${spaceId}/folders` + (qs ? `?${qs}` : '');
+    const resp = this.request(endpoint);
+    return { kind: resp.kind || 'folderTree', data: resp.data || [] };
+  }
+
+  /**
    * Get folder by ID
    */
   getFolder(folderId) {
@@ -629,6 +662,15 @@ ATTACHMENT OPTIONS:
 
 USERS OPTIONS:
   --me                         Show only the current user
+
+FOLDERS OPTIONS:
+  -s, --space <spaceId>        List folders/projects in a space
+  -p, --parent <folderId>      List children of a folder/project
+  --projects                   Include project metadata + filter to projects only
+  --project-only               Alias for --projects (projects only)
+  --search <text>              Case-insensitive title contains filter
+  --fields <fields>            Comma-separated extra fields (e.g. project,customFields)
+  --deleted                    Include deleted folders
 
 OUTPUT OPTIONS:
   --json                       Raw JSON output
@@ -1048,22 +1090,64 @@ function main() {
       }
 
       case 'folders': {
-        const result = client.getFolders();
+        const params = {};
+        // Request project-relevant fields so we can filter & show project info
+        const wantProjects = !!parsed.options['projects'] || !!parsed.options['project-only'];
+        const fieldsOpt = parsed.options.fields;
+        const fields = [];
+        if (wantProjects) fields.push('project');
+        if (fieldsOpt) {
+          String(fieldsOpt).split(',').map(s => s.trim()).filter(Boolean).forEach(f => {
+            if (!fields.includes(f)) fields.push(f);
+          });
+        }
+        if (fields.length) params.fields = JSON.stringify(fields);
+        if (parsed.options.descendants === 'false' || parsed.options.descendants === false) {
+          params.descendants = false;
+        }
+        if (parsed.options.deleted) params.deleted = true;
+
+        const space = parsed.options.space || parsed.options.s;
+        const parent = parsed.options.parent || parsed.options.p;
+        const search = (parsed.options.search || '').toString().toLowerCase();
+
+        let result;
+        if (space) {
+          result = client.getSpaceFolders(space, params);
+        } else if (parent) {
+          result = client.getFoldersIn(parent, params);
+        } else {
+          result = client.getAllFolders(params);
+        }
+
+        let folders = result.data || [];
+        if (wantProjects) {
+          folders = folders.filter(f => f.project);
+        }
+        if (search) {
+          folders = folders.filter(f => (f.title || '').toLowerCase().includes(search));
+        }
 
         if (parsed.options.summary) {
-          const folders = result.data || [];
           if (folders.length === 0) {
             console.log('No folders found.');
           } else {
             console.log(`Found ${folders.length} folder(s):\n`);
             folders.forEach((folder, index) => {
-              console.log(`${index + 1}. ${folder.title}`);
+              const kind = folder.project ? '[Project]' : '[Folder]';
+              console.log(`${index + 1}. ${kind} ${folder.title}`);
               console.log(`   ID: ${folder.id}`);
+              if (folder.project) {
+                const proj = folder.project;
+                const status = proj.customStatusId ? `customStatus:${proj.customStatusId}` : (proj.status || '');
+                console.log(`   Project: ${status}${proj.ownerIds ? ' | owners: ' + proj.ownerIds.join(',') : ''}`);
+              }
+              if (folder.permalink) console.log(`   Link: ${folder.permalink}`);
               console.log();
             });
           }
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify({ kind: result.kind || 'folderTree', count: folders.length, data: folders }, null, 2));
         }
         break;
       }
