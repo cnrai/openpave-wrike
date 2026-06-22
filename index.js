@@ -471,12 +471,45 @@ class WrikeClient {
   }
 
   /**
-   * Get folders
+   * Get folders (simple — no fields param, returns raw API response)
    */
   getFolders(params = {}) {
     const queryString = encodeFormData(params);
     const endpoint = '/folders' + (queryString ? `?${queryString}` : '');
     return this.request(endpoint);
+  }
+
+  /**
+   * Get all folders. The /folders endpoint returns the folder tree in a single
+   * response (no pagination supported), but accepts a `fields` parameter to
+   * request additional metadata such as `project` so we can detect projects.
+   */
+  getAllFolders(params = {}) {
+    const qs = encodeFormData(params);
+    const endpoint = '/folders' + (qs ? `?${qs}` : '');
+    const resp = this.request(endpoint);
+    return { kind: resp.kind || 'folderTree', data: resp.data || [] };
+  }
+
+  /**
+   * Get folders inside a specific space or folder (supports descendants).
+   * Useful for listing all projects under a space.
+   */
+  getFoldersIn(parentId, params = {}) {
+    const qs = encodeFormData(params);
+    const endpoint = `/folders/${parentId}/folders` + (qs ? `?${qs}` : '');
+    const resp = this.request(endpoint);
+    return { kind: resp.kind || 'folderTree', data: resp.data || [] };
+  }
+
+  /**
+   * Get folders within a space.
+   */
+  getSpaceFolders(spaceId, params = {}) {
+    const qs = encodeFormData(params);
+    const endpoint = `/spaces/${spaceId}/folders` + (qs ? `?${qs}` : '');
+    const resp = this.request(endpoint);
+    return { kind: resp.kind || 'folderTree', data: resp.data || [] };
   }
 
   /**
@@ -718,8 +751,16 @@ ATTACHMENT OPTIONS:
 USERS OPTIONS:
   --me                         Show only the current user
 
+FOLDERS OPTIONS:
+  -s, --space <spaceId>        List folders/projects in a space
+  -p, --parent <folderId>      List children of a folder/project
+  --projects                   Include project metadata + filter to projects only
+  --project-only               Alias for --projects (projects only)
+  --search <text>              Case-insensitive title contains filter
+  --fields <fields>            Comma-separated extra fields (e.g. project,customFields)
+  --deleted                    Include deleted folders
+
 OUTPUT OPTIONS:
-  --json                       Raw JSON output
   --summary                    Human-readable summary (default)
 
 EXAMPLES:
@@ -1162,42 +1203,64 @@ function main() {
       }
 
       case 'folders': {
-        const result = client.getFolders();
-        const allFolders = result.data || [];
-        const pageSize = parseInt(parsed.options['page-size'] || '50', 10);
-        const page = parseInt(parsed.options['page'] || '1', 10);
-        const totalCount = allFolders.length;
-        const totalPages = Math.ceil(totalCount / pageSize);
-        const startIdx = (page - 1) * pageSize;
-        const pageFolders = allFolders.slice(startIdx, startIdx + pageSize);
+        const params = {};
+        // --projects / --project-only: filter client-side (project data is in default response)
+        const wantProjects = !!parsed.options['projects'] || !!parsed.options['project-only'];
+        const fieldsOpt = parsed.options.fields;
+        const fields = [];
+        // Only add user-specified fields; 'project' is already returned by default
+        if (fieldsOpt) {
+          String(fieldsOpt).split(',').map(s => s.trim()).filter(Boolean).forEach(f => {
+            if (!fields.includes(f)) fields.push(f);
+          });
+        }
+        if (fields.length) params.fields = JSON.stringify(fields);
+        if (parsed.options.descendants === 'false' || parsed.options.descendants === false) {
+          params.descendants = false;
+        }
+        if (parsed.options.deleted) params.deleted = true;
+
+        const space = parsed.options.space || parsed.options.s;
+        const parent = parsed.options.parent || parsed.options.p;
+        const search = (parsed.options.search || '').toString().toLowerCase();
+
+        let result;
+        if (space) {
+          result = client.getSpaceFolders(space, params);
+        } else if (parent) {
+          result = client.getFoldersIn(parent, params);
+        } else {
+          result = client.getAllFolders(params);
+        }
+
+        let folders = result.data || [];
+        if (wantProjects) {
+          folders = folders.filter(f => f.project);
+        }
+        if (search) {
+          folders = folders.filter(f => (f.title || '').toLowerCase().includes(search));
+        }
 
         if (parsed.options.summary) {
-          if (allFolders.length === 0) {
+          if (folders.length === 0) {
             console.log('No folders found.');
           } else {
-            console.log(`Found ${allFolders.length} folder(s) (page ${page}/${totalPages}):\n`);
-            pageFolders.forEach((folder, index) => {
-              console.log(`${startIdx + index + 1}. ${folder.title}`);
+            console.log(`Found ${folders.length} folder(s):\n`);
+            folders.forEach((folder, index) => {
+              const kind = folder.project ? '[Project]' : '[Folder]';
+              console.log(`${index + 1}. ${kind} ${folder.title}`);
               console.log(`   ID: ${folder.id}`);
+              if (folder.project) {
+                const proj = folder.project;
+                const status = proj.customStatusId ? `customStatus:${proj.customStatusId}` : (proj.status || '');
+                console.log(`   Project: ${status}${proj.ownerIds ? ' | owners: ' + proj.ownerIds.join(',') : ''}`);
+              }
+              if (folder.permalink) console.log(`   Link: ${folder.permalink}`);
               console.log();
             });
           }
         } else {
-          const compact = {
-            kind: 'folders',
-            count: pageFolders.length,
-            page,
-            pageSize,
-            totalCount,
-            totalPages,
-            folders: pageFolders.map(f => ({ id: f.id, title: f.title, scope: f.scope }))
-          };
-          if (page < totalPages) {
-            compact.tip = 'Use --page ' + (page + 1) + ' to get the next page';
-          } else {
-            compact.tip = 'Last page reached';
-          }
-          console.log(JSON.stringify(compact));
+          console.log(JSON.stringify({ kind: result.kind || 'folderTree', count: folders.length, data: folders }));
         }
         break;
       }

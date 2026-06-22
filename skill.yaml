@@ -2,7 +2,7 @@
 # Query and manage Wrike tasks, folders, and attachments securely
 
 name: wrike
-version: 1.0.5
+version: 1.1.0
 description: Query and manage Wrike tasks, folders, and attachments using secure token system
 
 author:
@@ -123,10 +123,15 @@ commands:
       - --summary
 
   - name: folders
-    description: List all folders
+    description: List folders / projects (supports space, parent, project filter, search)
     options:
-      - --page <num>
-      - --page-size <size>
+      - -s, --space <spaceId>
+      - -p, --parent <folderId>
+      - --projects
+      - --project-only
+      - --search <text>
+      - --fields <fields>
+      - --deleted
       - --summary
 
   - name: spaces
