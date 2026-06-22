@@ -2,7 +2,7 @@
 # Query and manage Wrike tasks, folders, and attachments securely
 
 name: wrike
-version: 1.1.0
+version: 1.0.5
 description: Query and manage Wrike tasks, folders, and attachments using secure token system
 
 author:
@@ -31,7 +31,7 @@ commands:
       - --sort-field <field>
       - --sort-order <order>
       - --page-size <size>
-      - --json
+      - --page-token <token>
       - --summary
 
   - name: get
@@ -39,7 +39,6 @@ commands:
     options:
       - -i, --ids <taskIds>
       - -u, --urls <urls>
-      - --json
       - --summary
 
   - name: create
@@ -52,7 +51,6 @@ commands:
       - --status <status>
       - --importance <importance>
       - --responsibles <ids>
-      - --json
       - --summary
     required:
       - -f, --folder
@@ -70,7 +68,6 @@ commands:
       - --importance <importance>
       - --add-responsibles <ids>
       - --remove-responsibles <ids>
-      - --json
       - --summary
 
   - name: delete
@@ -78,7 +75,6 @@ commands:
     options:
       - -i, --id <taskId>
       - -u, --url <url>
-      - --json
       - --summary
 
   - name: comment
@@ -88,7 +84,6 @@ commands:
       - -u, --url <url>
       - -m, --message <text>
       - --plain
-      - --json
       - --summary
     required:
       - -m, --message
@@ -98,7 +93,6 @@ commands:
     args:
       - <taskId>
     options:
-      - --json
       - --summary
 
   - name: assign
@@ -108,7 +102,6 @@ commands:
       - -u, --url <url>
       - --user <user>
       - --replace
-      - --json
       - --summary
     required:
       - --user
@@ -121,33 +114,24 @@ commands:
       - -f, --folder <folderId>
       - --search <name>
       - --exact
-      - --json
       - --summary
 
   - name: users
     description: List Wrike users and contacts
     options:
       - --me
-      - --json
       - --summary
 
   - name: folders
-    description: List folders / projects (supports space, parent, project filter, search)
+    description: List all folders
     options:
-      - -s, --space <spaceId>
-      - -p, --parent <folderId>
-      - --projects
-      - --project-only
-      - --search <text>
-      - --fields <fields>
-      - --deleted
-      - --json
+      - --page <num>
+      - --page-size <size>
       - --summary
 
   - name: spaces
     description: List all spaces
     options:
-      - --json
       - --summary
 
   - name: convert-id

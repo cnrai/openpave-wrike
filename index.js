@@ -66,10 +66,98 @@ function encodeFormData(data) {
 /**
  * Wrike API Client - Secure Token Version
  */
+
+// ── PAVE Auth Proxy (replaces deprecated authenticatedFetch global) ──
+// Direct HTTP calls to the PAVE auth proxy at /proxy/:tokenName/*path
+var PAVE_PROXY_BASE = process.env.PAVE_PROXY_URL || '';
+
+function _shellQuote(s) {
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+function proxyHasToken(tokenName) {
+  if (!PAVE_PROXY_BASE) return false;
+  try {
+    var url = PAVE_PROXY_BASE.replace(/\/$/, '') + '/_tokens/' + encodeURIComponent(tokenName);
+    var out = require('child_process').execSync(
+      'curl -sS --max-time 5 ' + _shellQuote(url),
+      { encoding: 'utf8', timeout: 8000, stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    var r = JSON.parse(out);
+    return r.has === true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function proxyFetch(tokenName, url, options) {
+  options = options || {};
+  if (!PAVE_PROXY_BASE) {
+    throw new Error('PAVE_PROXY_URL not set - cannot reach auth proxy');
+  }
+
+  var parsed = new URL(url);
+  var proxyUrl = PAVE_PROXY_BASE.replace(/\/$/, '') + '/' + encodeURIComponent(tokenName) + parsed.pathname + parsed.search;
+  proxyUrl += (proxyUrl.indexOf('?') !== -1 ? '&' : '?') + '_mode=json';
+  if (options.saveTo) {
+    proxyUrl += '&_saveTo=' + encodeURIComponent(options.saveTo);
+  }
+
+  var method = options.method || 'GET';
+  var timeout = options.timeout || 30000;
+  var cmd = 'curl -sS -X ' + method + ' --max-time ' + Math.ceil(timeout / 1000);
+
+  var headers = Object.assign({}, options.headers || {});
+  if (options.body && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  for (var k in headers) {
+    cmd += ' -H ' + _shellQuote(k + ': ' + headers[k]);
+  }
+
+  if (options.body) {
+    var bodyStr = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+    cmd += ' -d ' + _shellQuote(bodyStr);
+  }
+
+  cmd += ' ' + _shellQuote(proxyUrl);
+
+  var out;
+  try {
+    out = require('child_process').execSync(cmd, {
+      encoding: 'utf8', timeout: timeout + 5000, maxBuffer: 10 * 1024 * 1024,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+  } catch (err) {
+    var stdout = err.stdout ? err.stdout.toString() : '';
+    var stderr = err.stderr ? err.stderr.toString() : '';
+    if (stdout) { out = stdout; } else {
+      throw new Error('Proxy request failed: ' + (stderr.trim() || err.message));
+    }
+  }
+
+  var resp;
+  try { resp = JSON.parse(out); } catch (e) {
+    return { ok: true, status: 200, headers: { get: function() { return null; } },
+      text: function() { return out; }, json: function() { return JSON.parse(out || '{}'); } };
+  }
+  if (resp.error) throw new Error(resp.error);
+  if (resp.savedTo) {
+    return { ok: resp.ok || false, status: resp.status || 200, savedTo: resp.savedTo,
+      headers: { get: function() { return null; } },
+      text: function() { return ''; }, json: function() { return {}; } };
+  }
+  return { ok: resp.ok || false, status: resp.status || 200,
+    headers: { get: function(name) { var hs = resp.headers || {}, ln = name.toLowerCase();
+      for (var key in hs) { if (key.toLowerCase() === ln) return Array.isArray(hs[key]) ? hs[key][0] : hs[key]; }
+      return null; } },
+    text: function() { return resp.body || ''; }, json: function() { return JSON.parse(resp.body || '{}'); } };
+}
+
 class WrikeClient {
   constructor() {
     // Check if wrike token is available via secure token system
-    if (typeof hasToken === 'function' && !hasToken('wrike')) {
+    if (!proxyHasToken('wrike')) {
       console.error('Wrike token not configured.');
       console.error('');
       console.error('Add to ~/.pave/permissions.yaml under tokens section:');
@@ -102,7 +190,7 @@ class WrikeClient {
   request(endpoint, options = {}) {
     const url = `${this.baseUrl}${endpoint}`;
 
-    const response = authenticatedFetch('wrike', url, {
+    const response = proxyFetch('wrike', url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -392,39 +480,6 @@ class WrikeClient {
   }
 
   /**
-   * Get all folders. The /folders endpoint returns the folder tree in a single
-   * response (no pagination supported), but accepts a `fields` parameter to
-   * request additional metadata such as `project` so we can detect projects.
-   */
-  getAllFolders(params = {}) {
-    const qs = encodeFormData(params);
-    const endpoint = '/folders' + (qs ? `?${qs}` : '');
-    const resp = this.request(endpoint);
-    return { kind: resp.kind || 'folderTree', data: resp.data || [] };
-  }
-
-  /**
-   * Get folders inside a specific space or folder (supports descendants).
-   * Useful for listing all projects under a space.
-   */
-  getFoldersIn(parentId, params = {}) {
-    const qs = encodeFormData(params);
-    const endpoint = `/folders/${parentId}/folders` + (qs ? `?${qs}` : '');
-    const resp = this.request(endpoint);
-    return { kind: resp.kind || 'folderTree', data: resp.data || [] };
-  }
-
-  /**
-   * Get folders within a space.
-   */
-  getSpaceFolders(spaceId, params = {}) {
-    const qs = encodeFormData(params);
-    const endpoint = `/spaces/${spaceId}/folders` + (qs ? `?${qs}` : '');
-    const resp = this.request(endpoint);
-    return { kind: resp.kind || 'folderTree', data: resp.data || [] };
-  }
-
-  /**
    * Get folder by ID
    */
   getFolder(folderId) {
@@ -663,15 +718,6 @@ ATTACHMENT OPTIONS:
 USERS OPTIONS:
   --me                         Show only the current user
 
-FOLDERS OPTIONS:
-  -s, --space <spaceId>        List folders/projects in a space
-  -p, --parent <folderId>      List children of a folder/project
-  --projects                   Include project metadata + filter to projects only
-  --project-only               Alias for --projects (projects only)
-  --search <text>              Case-insensitive title contains filter
-  --fields <fields>            Comma-separated extra fields (e.g. project,customFields)
-  --deleted                    Include deleted folders
-
 OUTPUT OPTIONS:
   --json                       Raw JSON output
   --summary                    Human-readable summary (default)
@@ -728,7 +774,11 @@ function main() {
         if (parsed.options.descendants !== undefined) params.descendants = String(parsed.options.descendants);
         if (parsed.options['sort-field']) params.sortField = parsed.options['sort-field'];
         if (parsed.options['sort-order']) params.sortOrder = parsed.options['sort-order'];
-        if (parsed.options['page-size']) params.pageSize = parsed.options['page-size'];
+
+        // Pagination: default 50 per page, use --page-token for subsequent pages
+        const pageSize = parsed.options['page-size'] || '50';
+        params.pageSize = pageSize;
+        if (parsed.options['page-token']) params.nextPageToken = parsed.options['page-token'];
         if (parsed.options.fields) params.fields = `[${parsed.options.fields}]`;
 
         let result;
@@ -743,7 +793,27 @@ function main() {
         if (parsed.options.summary) {
           printTasksSummary(result.data);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          const tasks = (result.data || []).map(t => ({
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            importance: t.importance,
+            permalink: t.permalink,
+            responsibleIds: t.responsibleIds,
+          }));
+          const compact = {
+            kind: 'tasks',
+            count: tasks.length,
+            pageSize: parseInt(pageSize, 10),
+            nextPageToken: result.nextPageToken || null,
+            tasks,
+          };
+          if (result.nextPageToken) {
+            compact.tip = 'Use --page-token ' + result.nextPageToken + ' to get the next page';
+          } else {
+            compact.tip = 'No more pages. Use "get" with specific task IDs for full details, or --summary for readable list';
+          }
+          console.log(JSON.stringify(compact));
         }
         break;
       }
@@ -766,7 +836,7 @@ function main() {
         if (parsed.options.summary) {
           printTasksSummary(result.data);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -810,7 +880,7 @@ function main() {
           console.log(`ID: ${task.id}`);
           console.log(`Link: ${task.permalink}`);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -864,7 +934,7 @@ function main() {
           console.log(`Task updated: ${task.title}`);
           console.log(`Status: ${task.status}`);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -891,14 +961,16 @@ function main() {
         }
 
         // Safety check - show task info before delete
-        const taskInfo = client.getTasksByIds([taskId]);
-        if (taskInfo.data && taskInfo.data.length > 0) {
-          const task = taskInfo.data[0];
-          console.log('About to delete task:');
-          console.log(`  Title: ${task.title}`);
-          console.log(`  ID: ${task.id}`);
-          console.log(`  Link: ${task.permalink}`);
-          console.log('');
+        if (parsed.options.summary) {
+          const taskInfo = client.getTasksByIds([taskId]);
+          if (taskInfo.data && taskInfo.data.length > 0) {
+            const task = taskInfo.data[0];
+            console.log('About to delete task:');
+            console.log(`  Title: ${task.title}`);
+            console.log(`  ID: ${task.id}`);
+            console.log(`  Link: ${task.permalink}`);
+            console.log('');
+          }
         }
 
         const result = client.deleteTask(taskId);
@@ -906,7 +978,7 @@ function main() {
         if (parsed.options.summary) {
           console.log(`Task deleted (moved to trash): ${taskId}`);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -944,7 +1016,7 @@ function main() {
         if (parsed.options.summary) {
           console.log(`Comment added to task: ${taskId}`);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -972,7 +1044,7 @@ function main() {
             });
           }
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -1014,7 +1086,7 @@ function main() {
           console.log(`Task "${task.title}" assigned to ${userId}`);
           console.log(`Responsibles: ${task.responsibleIds ? task.responsibleIds.join(', ') : 'none'}`);
         } else if (!parsed.options.summary) {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -1070,7 +1142,7 @@ function main() {
             });
           }
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -1084,70 +1156,48 @@ function main() {
         if (parsed.options.summary) {
           printUsersSummary(result.data || []);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
 
       case 'folders': {
-        const params = {};
-        // Request project-relevant fields so we can filter & show project info
-        const wantProjects = !!parsed.options['projects'] || !!parsed.options['project-only'];
-        const fieldsOpt = parsed.options.fields;
-        const fields = [];
-        if (wantProjects) fields.push('project');
-        if (fieldsOpt) {
-          String(fieldsOpt).split(',').map(s => s.trim()).filter(Boolean).forEach(f => {
-            if (!fields.includes(f)) fields.push(f);
-          });
-        }
-        if (fields.length) params.fields = JSON.stringify(fields);
-        if (parsed.options.descendants === 'false' || parsed.options.descendants === false) {
-          params.descendants = false;
-        }
-        if (parsed.options.deleted) params.deleted = true;
-
-        const space = parsed.options.space || parsed.options.s;
-        const parent = parsed.options.parent || parsed.options.p;
-        const search = (parsed.options.search || '').toString().toLowerCase();
-
-        let result;
-        if (space) {
-          result = client.getSpaceFolders(space, params);
-        } else if (parent) {
-          result = client.getFoldersIn(parent, params);
-        } else {
-          result = client.getAllFolders(params);
-        }
-
-        let folders = result.data || [];
-        if (wantProjects) {
-          folders = folders.filter(f => f.project);
-        }
-        if (search) {
-          folders = folders.filter(f => (f.title || '').toLowerCase().includes(search));
-        }
+        const result = client.getFolders();
+        const allFolders = result.data || [];
+        const pageSize = parseInt(parsed.options['page-size'] || '50', 10);
+        const page = parseInt(parsed.options['page'] || '1', 10);
+        const totalCount = allFolders.length;
+        const totalPages = Math.ceil(totalCount / pageSize);
+        const startIdx = (page - 1) * pageSize;
+        const pageFolders = allFolders.slice(startIdx, startIdx + pageSize);
 
         if (parsed.options.summary) {
-          if (folders.length === 0) {
+          if (allFolders.length === 0) {
             console.log('No folders found.');
           } else {
-            console.log(`Found ${folders.length} folder(s):\n`);
-            folders.forEach((folder, index) => {
-              const kind = folder.project ? '[Project]' : '[Folder]';
-              console.log(`${index + 1}. ${kind} ${folder.title}`);
+            console.log(`Found ${allFolders.length} folder(s) (page ${page}/${totalPages}):\n`);
+            pageFolders.forEach((folder, index) => {
+              console.log(`${startIdx + index + 1}. ${folder.title}`);
               console.log(`   ID: ${folder.id}`);
-              if (folder.project) {
-                const proj = folder.project;
-                const status = proj.customStatusId ? `customStatus:${proj.customStatusId}` : (proj.status || '');
-                console.log(`   Project: ${status}${proj.ownerIds ? ' | owners: ' + proj.ownerIds.join(',') : ''}`);
-              }
-              if (folder.permalink) console.log(`   Link: ${folder.permalink}`);
               console.log();
             });
           }
         } else {
-          console.log(JSON.stringify({ kind: result.kind || 'folderTree', count: folders.length, data: folders }, null, 2));
+          const compact = {
+            kind: 'folders',
+            count: pageFolders.length,
+            page,
+            pageSize,
+            totalCount,
+            totalPages,
+            folders: pageFolders.map(f => ({ id: f.id, title: f.title, scope: f.scope }))
+          };
+          if (page < totalPages) {
+            compact.tip = 'Use --page ' + (page + 1) + ' to get the next page';
+          } else {
+            compact.tip = 'Last page reached';
+          }
+          console.log(JSON.stringify(compact));
         }
         break;
       }
@@ -1168,7 +1218,7 @@ function main() {
             });
           }
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -1183,7 +1233,7 @@ function main() {
 
         const numericIds = ids.split(',').map(id => id.trim());
         const result = client.convertIds(numericIds);
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify(result));
         break;
       }
 
@@ -1197,9 +1247,9 @@ function main() {
 
         const id = WrikeClient.extractIdFromUrl(url);
         if (id) {
-          console.log(JSON.stringify({ numericId: id }, null, 2));
+          console.log(JSON.stringify({ numericId: id }));
         } else {
-          console.error(JSON.stringify({ error: 'Could not extract ID from URL' }, null, 2));
+          console.error(JSON.stringify({ error: 'Could not extract ID from URL' }));
           process.exit(1);
         }
         break;
@@ -1219,7 +1269,7 @@ function main() {
         error: error.message,
         status: error.status,
         data: error.data
-      }, null, 2));
+      }));
     }
     process.exit(1);
   }
