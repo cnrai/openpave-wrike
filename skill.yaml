@@ -2,7 +2,7 @@
 # Query and manage Wrike tasks, folders, and attachments securely
 
 name: wrike
-version: 1.1.0
+version: 1.1.1
 description: Query and manage Wrike tasks, folders, and attachments using secure token system
 
 author:
@@ -16,6 +16,35 @@ repository: cnrai/openpave-wrike
 # Execution pattern
 pattern: sandbox
 entrypoint: index.js
+
+usage_notes: |
+  IMPORTANT FOR AI AGENTS:
+  
+  ## Wrike Description Formatting (CRITICAL)
+  
+  When setting task descriptions via the update command, use HTML formatting:
+  - <b>Label:</b> value<br /> — bold label, value on same line
+  - <br /> alone for blank lines
+  - Numbered lists: 1. item<br />2. item<br />
+  - Bullets: &#8226; item<br />
+  - Em dash: &#8212;
+  - Never wrap multiple lines inside one <b> tag
+  - Avoid <ul>, <ol>, <li> — use <br /> and &#8226; instead
+  
+  ## Comment Formatting (CRITICAL)
+  Wrike comments support HTML. ALWAYS use HTML formatting in comments:
+  - <br/> for line breaks (NOT \n or markdown)
+  - <b>text</b> for bold headings
+  - <i>text</i> for italic
+  - <a href="url">text</a> for links
+  
+  DO NOT use the --plain flag when posting comments. --plain strips all HTML
+  formatting and renders comments as unformatted plain text. The default (without
+  --plain) correctly uses HTML mode.
+  
+  ## Multi-line Descriptions
+  For complex descriptions, use --description-file <path> instead of -d.
+  Write the HTML content to a temp file first, then pass it via --description-file.
 
 # Available commands
 commands:
