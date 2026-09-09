@@ -144,6 +144,7 @@ function proxyFetch(tokenName, url, options) {
   if (resp.error) throw new Error(resp.error);
   if (resp.savedTo) {
     return { ok: resp.ok || false, status: resp.status || 200, savedTo: resp.savedTo,
+      size: resp.size,
       headers: { get: function() { return null; } },
       text: function() { return ''; }, json: function() { return {}; } };
   }
@@ -462,6 +463,56 @@ class WrikeClient {
   }
 
   /**
+   * Get a single attachment's metadata by ID (name, size, contentType)
+   */
+  getAttachment(attachmentId) {
+    const response = this.request(`/attachments/${encodeURIComponent(attachmentId)}`);
+    const attachment = response.data && response.data[0];
+    if (!attachment) {
+      throw new Error(`Attachment not found: ${attachmentId}`);
+    }
+    return attachment;
+  }
+
+  /**
+   * Download an attachment's binary content to a local file (#2185).
+   *
+   * Uses the PAVE auth proxy's _saveTo mode: the trusted host follows the
+   * Wrike 302 to the presigned download URL, streams the body to disk
+   * binary-safe, and injects the Authorization header — the sandboxed skill
+   * never sees the token or the bytes. savePath must resolve under the
+   * user's home directory or /tmp or the proxy rejects it with 403.
+   */
+  downloadAttachment(attachmentId, savePath) {
+    const url = `https://${this.host}/api/v4/attachments/${encodeURIComponent(attachmentId)}/download`;
+    const response = proxyFetch('wrike', url, {
+      saveTo: savePath,
+      timeout: 120000
+    });
+
+    if (!response.ok || !response.savedTo) {
+      // The proxy writes the upstream (error) body to the file even on
+      // failure — surface it and clean up so a bogus file doesn't linger.
+      let detail = '';
+      try {
+        const fs = require('fs');
+        const written = response.savedTo || savePath;
+        detail = fs.readFileSync(written, 'utf8').slice(0, 300);
+        try { fs.unlinkSync(written); } catch (e) { /* best effort */ }
+      } catch (e) { /* best effort */ }
+      const err = new Error(`Attachment download failed (HTTP ${response.status})${detail ? ': ' + detail : ''}`);
+      err.status = response.status;
+      throw err;
+    }
+
+    return {
+      attachmentId: attachmentId,
+      savedTo: response.savedTo,
+      size: response.size
+    };
+  }
+
+  /**
    * Get contacts/users
    */
   getContacts(params = {}) {
@@ -685,6 +736,7 @@ COMMANDS:
   comments <taskId>            Get comments for a task
   assign [options]             Assign a task to user(s)
   attachments [options]        Query attachments
+  download [options]           Download an attachment to local disk (authenticated)
   users [options]              List Wrike users
   folders [options]            List folders
   spaces                       List spaces
@@ -748,6 +800,15 @@ ATTACHMENT OPTIONS:
   --search <name>              Search attachments by name
   --exact                      Use exact name matching
 
+DOWNLOAD OPTIONS:
+  -i, --attachment <id>        Download by attachment API ID
+  -t, --task <taskId>          Find attachment on this task (with --search)
+  --task-url <url>             Find attachment on this task URL (with --search)
+  -f, --folder <folderId>      Search attachments in a folder (with --search)
+  --search <name>              Attachment name to download (must match exactly one)
+  --exact                      Use exact name matching
+  -o, --output <path>          Save path (default: ~/Downloads/<attachment name>)
+
 USERS OPTIONS:
   --me                         Show only the current user
 
@@ -773,6 +834,8 @@ EXAMPLES:
   wrike comment --id TASKID --message "Work completed<br/>Ready for review"
   wrike assign --url "https://wrike.com/..." --user jasmine
   wrike attachments --folder MQAAAAECSW8i --search "invoice"
+  wrike download --task-url "https://www.wrike.com/open.htm?id=123456" --search "invoice" --exact
+  wrike download --attachment IEABSYMZI4E5E5JI
   wrike users --summary
   wrike users --me
 
@@ -1184,6 +1247,114 @@ function main() {
           }
         } else {
           console.log(JSON.stringify(result));
+        }
+        break;
+      }
+
+      case 'download': {
+        const attachmentIdOpt = parsed.options.attachment || parsed.options.i;
+        const searchName = parsed.options.search;
+        const outputOpt = parsed.options.output || parsed.options.o;
+
+        if (!attachmentIdOpt && !searchName) {
+          console.error('Error: Either --attachment <id> or --search <name> must be provided');
+          console.error('Usage: wrike download -i <attachmentId>');
+          console.error('       wrike download --task-url <url> --search <name>');
+          process.exit(1);
+        }
+
+        let attachment;
+        if (attachmentIdOpt) {
+          attachment = client.getAttachment(attachmentIdOpt);
+        } else {
+          // Resolve task URL to task ID if provided (same pattern as attachments)
+          let taskId = parsed.options.task || parsed.options.t;
+          if (parsed.options['task-url']) {
+            const permalinkId = WrikeClient.extractIdFromUrl(parsed.options['task-url']);
+            if (!permalinkId) {
+              console.error('Error: Could not extract ID from task URL');
+              process.exit(1);
+            }
+            const taskResponse = client.getTaskByPermalink(permalinkId);
+            if (!taskResponse.data || taskResponse.data.length === 0) {
+              console.error('Error: Task not found');
+              process.exit(1);
+            }
+            taskId = taskResponse.data[0].id;
+          }
+
+          const searchOptions = { exact: parsed.options.exact || false };
+          if (taskId) searchOptions.taskId = taskId;
+          if (parsed.options.folder || parsed.options.f) {
+            searchOptions.folderId = parsed.options.folder || parsed.options.f;
+          }
+
+          const searchResult = client.searchAttachmentsByName(searchName, searchOptions);
+          if (searchResult.matchCount === 0) {
+            console.error(`Error: No attachment matching "${searchName}" found (searched ${searchResult.totalSearched} attachment(s))`);
+            console.error('Run "wrike attachments" with the same filters to list names and IDs');
+            process.exit(1);
+          }
+          if (searchResult.matchCount > 1) {
+            console.error(`Error: ${searchResult.matchCount} attachments match "${searchName}" — use --exact or pick one by ID:\n`);
+            searchResult.data.forEach((att, index) => {
+              console.error(`  ${index + 1}. ${att.name} (ID: ${att.id}, ${att.size || '?'} bytes)`);
+            });
+            process.exit(1);
+          }
+          attachment = searchResult.data[0];
+        }
+
+        // Resolve save path: explicit --output wins; default ~/Downloads/<attachment name>
+        const path = require('path');
+        const homeDir = process.env.HOME || process.env.USERPROFILE;
+        let savePath = outputOpt;
+        if (!savePath) {
+          if (!homeDir) {
+            console.error('Error: --output <path> required (cannot determine home directory for the default location)');
+            process.exit(1);
+          }
+          const fallbackName = `attachment-${attachment.id}`;
+          const safeName = String(attachment.name || fallbackName).replace(/[/\\:*?"<>|\u0000]/g, '_').trim() || fallbackName;
+          savePath = path.join(homeDir, 'Downloads', safeName);
+        } else if (savePath.startsWith('~/') || savePath === '~') {
+          if (!homeDir) {
+            console.error('Error: Cannot expand ~ without a home directory');
+            process.exit(1);
+          }
+          savePath = savePath === '~' ? homeDir : path.join(homeDir, savePath.slice(2));
+        } else {
+          savePath = path.resolve(savePath);
+        }
+
+        // Don't clobber an existing file: append -2, -3, ... before the extension
+        try {
+          const fs = require('fs');
+          if (fs.existsSync(savePath)) {
+            const ext = path.extname(savePath);
+            const stem = savePath.slice(0, savePath.length - ext.length);
+            let n = 2;
+            while (fs.existsSync(`${stem}-${n}${ext}`)) n++;
+            savePath = `${stem}-${n}${ext}`;
+          }
+        } catch (e) { /* fall through with the original path */ }
+
+        const result = client.downloadAttachment(attachment.id, savePath);
+
+        if (parsed.options.summary) {
+          console.log(`Downloaded "${attachment.name}"`);
+          console.log(`  Saved to: ${result.savedTo}`);
+          console.log(`  Size: ${result.size} bytes`);
+          if (attachment.contentType) console.log(`  Type: ${attachment.contentType}`);
+        } else {
+          console.log(JSON.stringify({
+            kind: 'download',
+            attachmentId: attachment.id,
+            name: attachment.name,
+            contentType: attachment.contentType,
+            size: result.size,
+            savedTo: result.savedTo
+          }));
         }
         break;
       }

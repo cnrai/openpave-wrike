@@ -2,7 +2,7 @@
 # Query and manage Wrike tasks, folders, and attachments securely
 
 name: wrike
-version: 1.1.0
+version: 1.2.0
 description: Query and manage Wrike tasks, folders, and attachments using secure token system
 
 author:
@@ -114,6 +114,18 @@ commands:
       - -f, --folder <folderId>
       - --search <name>
       - --exact
+      - --summary
+
+  - name: download
+    description: Download an attachment file to local disk (authenticated, binary-safe) - by attachment ID, or by task/folder plus name search; saves to ~/Downloads by default. Use this instead of raw fetch, which lacks the auth token
+    options:
+      - -i, --attachment <attachmentId>
+      - -t, --task <taskId>
+      - --task-url <url>
+      - -f, --folder <folderId>
+      - --search <name>
+      - --exact
+      - -o, --output <path>
       - --summary
 
   - name: users
@@ -251,6 +263,12 @@ examples:
 
   - description: Search attachments by name
     command: wrike attachments --folder MQAAAAECSW8i --search "invoice" --summary
+
+  - description: Download an attachment from a task URL by name
+    command: wrike download --task-url "https://www.wrike.com/open.htm?id=123456" --search "invoice.pdf" --exact
+
+  - description: Download an attachment by ID
+    command: wrike download --attachment IEABSYMZI4E5E5JI --output ~/Downloads/report.pdf
 
   - description: List all users
     command: wrike users --summary

@@ -141,6 +141,29 @@ wrike attachments --folder MQAAAAECSW8i --search "invoice" --summary
 wrike attachments --search "report.pdf" --exact --summary
 ```
 
+### Download Attachments
+
+Downloads are authenticated via the PAVE secure token system and binary-safe —
+the token and file bytes never pass through sandboxed skill code. Files are
+saved to `~/Downloads/<attachment name>` by default (use `-o` to override).
+
+```bash
+# Download from a task URL by name (exact match avoids ambiguity)
+wrike download --task-url "https://www.wrike.com/open.htm?id=123456" --search "invoice.pdf" --exact
+
+# Download from a task by ID, fuzzy name match
+wrike download --task TASKID --search "invoice"
+
+# Download by attachment API ID (from `wrike attachments`)
+wrike download --attachment ATTACHMENTID
+
+# Save to a specific path
+wrike download --attachment ATTACHMENTID --output ~/Documents/report.pdf
+```
+
+If `--search` matches zero or multiple attachments, the command errors and
+lists candidates — run `wrike attachments` with the same filters to get IDs.
+
 ### Users and Organization
 
 ```bash
