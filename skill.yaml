@@ -192,6 +192,7 @@ permissions:
   modules:
     - fs
     - path
+    - os
   system: []
 
 # Platform compatibility

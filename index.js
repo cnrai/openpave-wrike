@@ -24,6 +24,9 @@
 // Constants
 const WRIKE_HOST = 'www.wrike.com';
 const WRIKE_API_BASE = `https://${WRIKE_HOST}/api/v4`;
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 // Common user mappings for convenience
 const WRIKE_USERS = {
@@ -71,6 +74,13 @@ function encodeFormData(data) {
 // Direct HTTP calls to the PAVE auth proxy at /proxy/:tokenName/*path
 var PAVE_PROXY_BASE = process.env.PAVE_PROXY_URL || '';
 
+// Request bodies must never travel in argv. execve caps a single argument at
+// MAX_ARG_STRLEN (128 KiB on Linux) and the whole argv+env at ARG_MAX (1 MB on
+// macOS), so a large body fails with E2BIG before curl even starts. Bodies
+// above this limit are spilled to a temp file and streamed with
+// --data-binary @file; smaller ones stay inline.
+var BODY_ARG_LIMIT = 32 * 1024;
+
 function proxyHasToken(tokenName) {
   if (!PAVE_PROXY_BASE) return false;
   try {
@@ -84,6 +94,27 @@ function proxyHasToken(tokenName) {
   } catch (e) {
     return false;
   }
+}
+
+// Spill a request body to disk and stream it with --data-binary @file.
+//
+// Two runtime constraints, both verified against the real sandbox:
+//  - process.pid is undefined inside the PAVE sandbox, so the file name must not
+//    depend on it;
+//  - the sandbox refuses to unlink an absolute path with fewer than 3 path
+//    components, so /tmp/<file>.tmp can be written but NOT deleted. Files live in
+//    a dedicated subdirectory instead.
+const PROXY_BODY_DIR = path.join(os.tmpdir(), 'pave-proxy-bodies');
+function _writeProxyBodyFile(bodyStr) {
+  try { fs.mkdirSync(PROXY_BODY_DIR, { recursive: true }); } catch (e) { /* already exists */ }
+  const p = path.join(PROXY_BODY_DIR,
+    'body-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10) + '.tmp');
+  fs.writeFileSync(p, bodyStr, { mode: 384 }); // 0600
+  return p;
+}
+function _removeProxyBodyFile(p) {
+  try { fs.unlinkSync(p); return; } catch (e) { /* fall through */ }
+  try { if (typeof fs.rmSync === 'function') fs.rmSync(p, { force: true }); } catch (e) { /* best effort */ }
 }
 
 function proxyFetch(tokenName, url, options) {
@@ -111,9 +142,21 @@ function proxyFetch(tokenName, url, options) {
     argv.push('-H', k + ': ' + headers[k]);
   }
 
-  if (options.body) {
+  // Bodies must never travel in argv — see the BODY_ARG_LIMIT note above.
+  var bodyFile = options.bodyFile || null;
+  var tempBodyFile = null;
+  if (!bodyFile && options.body) {
     var bodyStr = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
-    argv.push('-d', bodyStr);
+    if (bodyStr.length > BODY_ARG_LIMIT) {
+      tempBodyFile = _writeProxyBodyFile(bodyStr);
+      bodyFile = tempBodyFile;
+    } else {
+      argv.push('-d', bodyStr);
+    }
+  }
+
+  if (bodyFile) {
+    argv.push('--data-binary', '@' + bodyFile);
   }
 
   argv.push(proxyUrl);
@@ -130,6 +173,8 @@ function proxyFetch(tokenName, url, options) {
     if (stdout) { out = stdout; } else {
       throw new Error('Proxy request failed: ' + (stderr.trim() || err.message));
     }
+  } finally {
+    if (tempBodyFile) { _removeProxyBodyFile(tempBodyFile); }
   }
 
   var resp;
